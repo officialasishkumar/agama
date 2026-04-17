@@ -21,12 +21,114 @@
 use merge::Merge;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use utoipa::PartialSchema;
+
+/// Storage configuration schema wrapper
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct StorageSchema(pub Value);
+
+impl utoipa::PartialSchema for StorageSchema {
+    fn schema() -> utoipa::openapi::RefOr<utoipa::openapi::schema::Schema> {
+        use utoipa::openapi::schema::ObjectBuilder;
+        use utoipa::openapi::extensions::Extensions;
+
+        // Include the storage schema JSON at compile time
+        const STORAGE_SCHEMA_JSON: &str =
+            include_str!("../../../../agama-lib/share/storage.schema.json");
+
+        // Parse the JSON schema
+        let mut schema_value: serde_json::Value = serde_json::from_str(STORAGE_SCHEMA_JSON)
+            .expect("Failed to parse storage.schema.json");
+
+        // Fix all $ref paths to point to the component schema's $defs
+        fix_refs(&mut schema_value, "#/components/schemas/storage.StorageSchema");
+
+        // Extract the properties and $defs
+        let obj = schema_value.as_object()
+            .expect("Storage schema must be an object");
+
+        let mut builder = ObjectBuilder::new();
+
+        if let Some(desc) = obj.get("description").and_then(|v| v.as_str()) {
+            builder = builder.description(Some(desc.to_string()));
+        }
+
+        // Add additional properties = false if specified
+        if let Some(false) = obj.get("additionalProperties").and_then(|v| v.as_bool()) {
+            builder = builder.additional_properties(Some(utoipa::openapi::schema::AdditionalProperties::FreeForm(false)));
+        }
+
+        // Convert properties
+        if let Some(props) = obj.get("properties").and_then(|v| v.as_object()) {
+            for (key, value) in props {
+                if let Ok(prop_schema) = serde_json::from_value::<utoipa::openapi::schema::Schema>(value.clone()) {
+                    builder = builder.property(key, prop_schema);
+                }
+            }
+        }
+
+        // Add $defs as an extension (OpenAPI 3.1 supports this)
+        if let Some(defs) = obj.get("$defs") {
+            let extensions: Extensions = [(String::from("$defs"), defs.clone())]
+                .into_iter()
+                .collect();
+            builder = builder.extensions(Some(extensions));
+        }
+
+        utoipa::openapi::RefOr::T(utoipa::openapi::schema::Schema::Object(builder.build()))
+    }
+}
+
+/// Fix all `#/$defs/X` references to point to the component schema's path
+fn fix_refs(value: &mut serde_json::Value, schema_path: &str) {
+    match value {
+        serde_json::Value::Object(map) => {
+            if let Some(ref_value) = map.get_mut("$ref") {
+                if let Some(ref_str) = ref_value.as_str() {
+                    if let Some(def_name) = ref_str.strip_prefix("#/$defs/") {
+                        *ref_value = serde_json::Value::String(
+                            format!("{}/$defs/{}", schema_path, def_name)
+                        );
+                    }
+                }
+            }
+            for (_, v) in map.iter_mut() {
+                fix_refs(v, schema_path);
+            }
+        }
+        serde_json::Value::Array(arr) => {
+            for item in arr.iter_mut() {
+                fix_refs(item, schema_path);
+            }
+        }
+        _ => {}
+    }
+}
+
+impl utoipa::ToSchema for StorageSchema {
+    fn name() -> std::borrow::Cow<'static, str> {
+        std::borrow::Cow::Borrowed("storage.StorageSchema")
+    }
+
+    fn schemas(
+        schemas: &mut Vec<(String, utoipa::openapi::RefOr<utoipa::openapi::schema::Schema>)>,
+    ) {
+        // Just register the main schema with all $defs inline
+        schemas.push((
+            Self::name().to_string(),
+            Self::schema(),
+        ));
+    }
+}
+
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 #[schema(as = storage::Config)]
 pub struct Config {
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[schema(value_type = Option<StorageSchema>)]
     pub storage: Option<Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub legacy_autoyast_storage: Option<Value>,

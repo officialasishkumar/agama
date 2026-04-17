@@ -18,5 +18,5 @@
 // To contact SUSE LLC about this file by physical or electronic mail, you may
 // find current contact information at www.suse.com.
 
-mod config;
-pub use config::Config;
+pub mod config;
+pub use config::{Config, StorageSchema};

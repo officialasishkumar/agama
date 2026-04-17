@@ -20,6 +20,7 @@
 
 use agama_utils::openapi::schemas;
 use utoipa::openapi::{Components, ComponentsBuilder, Paths, PathsBuilder};
+use utoipa::ToSchema;
 
 /// Returns the paths for the configuration API endpoints.
 pub fn paths() -> Paths {
@@ -192,6 +193,7 @@ pub fn components() -> Components {
         .schema_from::<agama_utils::api::question::SelectionOption>()
         .schema_from::<agama_utils::api::question::UpdateQuestion>()
         .schema_from::<agama_utils::api::storage::Config>()
+        .schema_from::<agama_utils::api::storage::config::StorageSchema>()
         .schema_from::<agama_utils::api::software::RepositoryConfig>()
         .schema_from::<agama_utils::api::status::Stage>()
         .schema_from::<agama_utils::api::query::SolveStorageModel>()
